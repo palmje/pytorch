@@ -62,6 +62,13 @@ uint64_t randint64_cpu(uint32_t seed, uint32_t offset, int64_t low, int64_t high
   return (result % static_cast<uint64_t>(high - low)) + low;
 }
 
+template <typename T> void atomic_add(volatile T *addr, T offset) {
+  static_assert(sizeof(std::atomic<T>) == sizeof(T),
+                "std::atomic issue");
+  std::atomic<T> *atomic_addr = (std::atomic<T> *)addr;
+  atomic_addr->fetch_add(offset, std::memory_order_relaxed);
+}
+
 template <typename T> struct AsIntegerType { typedef T type; };
 template <> struct AsIntegerType<float> { typedef uint32_t type; };
 template <> struct AsIntegerType<double> { typedef uint64_t type; };
@@ -77,7 +84,7 @@ inline bfloat16 fetch_value<bfloat16>(volatile bfloat16 *addr) {
   return bfloat16(addr->x);
 }
 
-template <typename T> void atomic_add(volatile T *addr, T offset) {
+template <typename T> inline void atomic_floating_add(volatile T *addr, T offset) {
   typedef typename AsIntegerType<T>::type alt_type;
 
   static_assert(sizeof(std::atomic<alt_type>) == sizeof(T),
@@ -95,6 +102,13 @@ template <typename T> void atomic_add(volatile T *addr, T offset) {
   } while (!atomic_addr->compare_exchange_weak(expected, desired,
                                                std::memory_order_relaxed));
 }
+
+// Since C++20 float is supported by fetch_add, but the performance may not
+// better than compare_exchange_weak, which can be checked by microbenchmark
+// inductor_cpu_atomic.py
+template <> void atomic_add<float>(volatile float *addr, float offset) { atomic_floating_add(addr, offset); }
+template <> void atomic_add<double>(volatile double *addr, double offset) { atomic_floating_add(addr, offset); }
+template <> void atomic_add<bfloat16>(volatile bfloat16 *addr, bfloat16 offset) { atomic_floating_add(addr, offset); }
 
 // This function is used to convert bool or uint8 to float mask for
 // vectorization. The caller needs to make sure the src represents TRUE/FALSE
