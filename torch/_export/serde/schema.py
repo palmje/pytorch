@@ -1,7 +1,7 @@
 # NOTE: This is a placeholder for iterating on export serialization schema design.
 #       Anything is subject to change and no guarantee is provided at this point.
 
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields, make_dataclass
 from enum import Enum
 from typing import Dict, List, Optional, Tuple
 
@@ -10,10 +10,29 @@ class _Union:
     @classmethod
     def create(cls, **kwargs):
         assert len(kwargs) == 1
-        return cls(**{**{field.name: None for field in fields(cls)}, **kwargs})
+        obj = cls(**{**{f.name: None for f in fields(cls)}, **kwargs})
+        return obj
+
+    @classmethod
+    def fields(cls):
+        field_name = [(f.name, str, field(default=f.name)) for f in fields(cls)]
+        return make_dataclass("FieldDataClass", field_name)()
 
     def __post_init__(self):
-        assert sum(1 for field in fields(self) if getattr(self, field.name) is not None) == 1
+        assert sum(1 for f in fields(self) if getattr(self, f.name) is not None) == 1
+
+    @property
+    def value(self):
+        val = next((getattr(self, f.name) for f in fields(self) if getattr(self, f.name) is not None), None)
+        assert val is not None
+        return val
+
+    @property
+    def type(self):
+        val_type = next((f.name for f in fields(self) if getattr(self, f.name) is not None), None)
+        assert val_type is not None
+        return val_type
+
 
 class ScalarType(Enum):
     UNKNOWN = 0
