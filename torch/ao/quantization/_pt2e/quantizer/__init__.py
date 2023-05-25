@@ -5,10 +5,12 @@ from .quantizer import (
     QuantizationSpec,
     QuantizationAnnotation,
 )
+from .x86_inductor_quantizer import X86InductorQuantizer
 
 __all__ = [
     "Quantizer",
     "QuantizationSpec",
     "QNNPackQuantizer",
     "QuantizationAnnotation",
+    "X86InductorQuantizer",
 ]

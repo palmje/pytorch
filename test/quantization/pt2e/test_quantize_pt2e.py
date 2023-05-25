@@ -6,6 +6,7 @@ from typing import Any, List, Optional, Tuple
 
 import torch
 import torch._dynamo as torchdynamo
+import torch.nn as nn
 from torch.ao.ns.fx.utils import compute_sqnr
 from torch.ao.quantization import (
     FusedMovingAvgObsFakeQuantize,
@@ -19,6 +20,7 @@ from torch.ao.quantization._pt2e.quantizer import (
     QNNPackQuantizer,
     Quantizer,
     QuantizationSpec,
+    X86InductorQuantizer,
 )
 from torch.ao.quantization._quantize_pt2e import (
     convert_pt2e,
@@ -44,6 +46,8 @@ from torch.testing._internal.common_quantization import (
     QuantizationTestCase,
     skip_if_no_torchvision,
     skipIfNoQNNPACK,
+    skipIfNoX86,
+    skipIfNoDynamoSupport,
 )
 from torch.fx import Node
 from torch.testing._internal.common_quantized import override_quantized_engine
@@ -1014,3 +1018,55 @@ class TestQuantizePT2EModels(QuantizationTestCase):
             self.assertTrue(
                 compute_sqnr(after_quant_result, after_quant_result_fx) > 35
             )
+
+
+@skipIfNoDynamoSupport
+class TestX86InductorQuantizePT2E(QuantizationTestCase):
+    @skipIfNoX86
+    def test_conv2d_with_quantizer_api(self):
+        class Mod(torch.nn.Module):
+            def __init__(self, ) -> None:
+                super().__init__()
+                self.conv = nn.Conv2d(3, 6, (2, 2), stride=(1, 1), padding=(1, 1))
+
+            def forward(self, x):
+                return self.conv(x)
+
+        with override_quantized_engine("x86"):
+            with torch.no_grad():
+                m = Mod().eval()
+                m_copy = copy.deepcopy(m)
+                example_inputs = (torch.randn(2, 3, 16, 16),)
+                # program capture
+                m, guards = torchdynamo.export(
+                    m,
+                    *copy.deepcopy(example_inputs),
+                    aten_graph=True,
+                )
+
+                before_fusion_result = m(*example_inputs)
+                import torch.ao.quantization._pt2e.quantizer.x86_inductor_quantizer as xiq
+                quantizer = X86InductorQuantizer()
+                operator_config = xiq.get_default_x86_inductor_quantization_config()
+                quantizer.set_global(operator_config)
+                # Insert Observer
+                m = prepare_pt2e_quantizer(m, quantizer)
+                after_prepare_result = m(*example_inputs)
+                m = convert_pt2e(m)
+                node_occurrence = {
+                    # one for input and weight of the conv, one for output for the conv
+                    ns.call_function(torch.ops.quantized_decomposed.quantize_per_tensor): 2,
+                    ns.call_function(torch.ops.quantized_decomposed.dequantize_per_tensor): 2,
+                    ns.call_function(torch.ops.quantized_decomposed.quantize_per_channel): 1,
+                    ns.call_function(torch.ops.quantized_decomposed.dequantize_per_channel): 1,
+                }
+                node_list = [
+                    ns.call_function(torch.ops.quantized_decomposed.quantize_per_tensor),
+                    ns.call_function(torch.ops.quantized_decomposed.dequantize_per_tensor),
+                    ns.call_function(torch.ops.aten.convolution.default),
+                    ns.call_function(torch.ops.quantized_decomposed.quantize_per_tensor),
+                    ns.call_function(torch.ops.quantized_decomposed.dequantize_per_tensor),
+                ]
+                self.checkGraphModuleNodes(m,
+                                           expected_node_occurrence=node_occurrence,
+                                           expected_node_list=node_list)

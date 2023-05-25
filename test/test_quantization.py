@@ -77,6 +77,7 @@ try:
 # Quantization for PyTorch 2.0 Export path
     from quantization.pt2e.test_quantize_pt2e import TestQuantizePT2E  # noqa: F401
     from quantization.pt2e.test_quantize_pt2e import TestQuantizePT2EModels  # noqa: F401
+    from quantization.pt2e.test_quantize_pt2e import TestX86InductorQuantizePT2E  # noqa: F401
     from quantization.pt2e.test_quantize_pt2e_fx import TestQuantizePT2EFX  # noqa: F401
     from quantization.pt2e.test_quantize_pt2e_fx import TestQuantizePT2EFXX86Inductor  # noqa: F401
     from quantization.pt2e.test_quantize_pt2e_fx import TestQuantizePT2EFXModels  # noqa: F401
